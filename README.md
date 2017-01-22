@@ -1,2 +1,2 @@
-# Unity3D.LuaHotPatchEnabler
-enable lua hotpatch for il2cpp. work with project_u
+# Unity3D.HotPatchEnabler
+enable hotpatch. work with [Project U](https://github.com/xiaobin83/project_u)
