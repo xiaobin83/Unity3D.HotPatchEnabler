@@ -21,16 +21,40 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+using System;
+using System.IO;
 using UnusedBytecodeStripper2.Chain;
+using System.Collections.Generic;
 
 namespace hotpatch
 {
 	[DllProcessor(Priority = 100)]
 	public class HotPatchEnabler : IProcessDll
 	{
-		public void ProcessDll(string[] pathOfDlls)
+		public void ProcessDll(string[] args)
 		{
-			HotPatchEditor.Active(pathOfDlls);
+			Log("Start HotPatchEnabler ... ");
+			HotPatchEditor.Log = Log;
+			var dllFileNames = new List<string>();
+			for (var i = 0; i < args.Length; i++)
+			{
+				switch (args[i])
+				{
+					case "-a":
+						// eg: -a ./Client/Temp/StagingArea/Data/Managed/Assembly-CSharp.dll
+						i += 1;
+						dllFileNames.Add(args[i]);
+						break;
+				}
+			}
+			if (dllFileNames.Count > 0)
+				HotPatchEditor.Active(dllFileNames.ToArray());
+		}
+
+		static void Log(string log)
+		{
+			File.AppendAllText("HotPatchEnabler.txt", log + "\n");
+			Console.WriteLine(log);
 		}
 	}
 }

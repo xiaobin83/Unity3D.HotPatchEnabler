@@ -59,16 +59,20 @@ namespace hotpatch
 			return MemberInfoCore(memberSelectionExpression.Body, null/*param*/);
 		}
 
-		public static void Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null)
+		public static void Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null, bool processSymbols = false)
 		{
 			var readerParameters = new ReaderParameters { ReadSymbols = true };
 			var writerParameters = new WriterParameters { WriteSymbols = true };
 			IEnumerable<TypeDefinition> allTypes = null;
 			foreach (var p in pathOfAssemblies)
 			{
+				Log("searching " + p);
 				if (allTypes == null)
 				{
-					allTypes = AssemblyDefinition.ReadAssembly(p, readerParameters).Modules.SelectMany(m => m.GetTypes());
+					if (processSymbols)
+						allTypes = AssemblyDefinition.ReadAssembly(p, readerParameters).Modules.SelectMany(m => m.GetTypes());
+					else
+						allTypes = AssemblyDefinition.ReadAssembly(p).Modules.SelectMany(m => m.GetTypes());
 				}
 				else
 				{
@@ -292,7 +296,10 @@ namespace hotpatch
 			{
 				var path = pathOfAssemblies.First(s => s.Contains(a.MainModule.Name));
 				if (writeAssemblyAs != null) path = writeAssemblyAs(path);
-				a.Write(path, writerParameters);
+				if (processSymbols)
+					a.Write(path, writerParameters);
+				else
+					a.Write(path);
 			}
 
 			pathOfAssemblies = null;
