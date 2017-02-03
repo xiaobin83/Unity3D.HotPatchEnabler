@@ -25,11 +25,11 @@ using System;
 
 namespace hotpatch
 {
-	public class LuaHotPatchAttribute : Attribute
+	public class HotPatchAttribute : Attribute
 	{
 	}
 
-	public class LuaHotPatchHubAttribute : Attribute
+	public class HotPatchHubAttribute : Attribute
 	{
 		public int Priority = 0;
 	}

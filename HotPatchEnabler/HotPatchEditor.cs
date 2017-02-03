@@ -88,7 +88,7 @@ namespace hotpatch
 
 			// find	hub	method
 			var hubs = allMethods
-				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(LuaHotPatchHubAttribute).FullName) != null).ToArray();
+				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchHubAttribute).FullName) != null).ToArray();
 
 			MethodReference hubMethod = null;
 			if (hubs.Length > 0)
@@ -102,14 +102,14 @@ namespace hotpatch
 			}
 
 			var injectingTargets = allMethods
-				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(LuaHotPatchAttribute).ToString()) != null)
+				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).ToString()) != null)
 				.ToArray();
 
 			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
 
 			var pendingAssembly = new HashSet<AssemblyDefinition>();
 
-			var hotPatchAttrName = typeof(LuaHotPatchAttribute).ToString();
+			var hotPatchAttrName = typeof(HotPatchAttribute).ToString();
 
 			foreach (var m in injectingTargets)
 			{
