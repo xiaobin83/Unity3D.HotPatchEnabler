@@ -108,8 +108,13 @@ namespace hotpatch
 			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
 
 			var pendingAssembly = new HashSet<AssemblyDefinition>();
+
+			var hotPatchAttrName = typeof(LuaHotPatchAttribute).ToString();
+
 			foreach (var m in injectingTargets)
 			{
+				RemoveAttributes(hotPatchAttrName, m.CustomAttributes);
+
 				var signature = m.FullName;
 				Log(string.Format("Adding patching stub to \"{0}\"", signature));
 				var getMethodFromHandleMethodRef = m.Module.ImportReference(getMethodFromHandleMethod);
@@ -303,6 +308,24 @@ namespace hotpatch
 			}
 
 			pathOfAssemblies = null;
+		}
+
+		static void RemoveAttributes(string attrName, Mono.Collections.Generic.Collection<CustomAttribute> customAttributes)
+		{
+			int index = -1;
+			for (var i = 0; i < customAttributes.Count; i++)
+			{
+				var attr = customAttributes[i];
+				if (attr.Constructor != null && attr.Constructor.DeclaringType.FullName == attrName)
+				{
+					index = i;
+					break;
+				}
+			}
+			if (index != -1)
+			{
+				customAttributes.RemoveAt(index);
+			}
 		}
 
 		static void ReplaceInstruction(ILProcessor ilProcessor, Instruction anchorInstruction, IEnumerable<Instruction> instructions)
