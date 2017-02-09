@@ -22,12 +22,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 using System;
+using System.Reflection;
 
 namespace hotpatch
 {
 	public class HotPatchAttribute : Attribute
 	{
+		public const BindingFlags DefaultFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+		public BindingFlags Flags = DefaultFlags;
 	}
+
+	public delegate bool HotPatchHubDelegate(string signature, MethodBase method, object target, out object retval, params object[] args);
 
 	public class HotPatchHubAttribute : Attribute
 	{

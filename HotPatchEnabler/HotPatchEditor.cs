@@ -34,7 +34,8 @@ namespace hotpatch
 {
 	public class HotPatchEditor
 	{
-		public static System.Action<string> Log = delegate { };
+		public static System.Action<string> Log = (msg) => Console.WriteLine(msg);
+		public static System.Action<string> LogError = Log;
 
 
 		// http://stackoverflow.com/a/9469697/84998
@@ -59,57 +60,142 @@ namespace hotpatch
 			return MemberInfoCore(memberSelectionExpression.Body, null/*param*/);
 		}
 
-		public static void Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null, bool processSymbols = false)
+		// patch class
+		// after patched, all HotPatchAttribute will be removed
+		public static HashSet<AssemblyDefinition> PatchClasses(IEnumerable<TypeDefinition> classesToPatch, MethodReference hubMethod)
 		{
-			var readerParameters = new ReaderParameters { ReadSymbols = true };
-			var writerParameters = new WriterParameters { WriteSymbols = true };
-			IEnumerable<TypeDefinition> allTypes = null;
-			foreach (var p in pathOfAssemblies)
+			var patchedAssembly = new HashSet<AssemblyDefinition>();
+			foreach (var c in classesToPatch)
 			{
-				Log("searching " + p);
-				if (allTypes == null)
+				Log("Patching class " + c.FullName);
+				if (PatchClass(c, hubMethod))
 				{
-					if (processSymbols)
-						allTypes = AssemblyDefinition.ReadAssembly(p, readerParameters).Modules.SelectMany(m => m.GetTypes());
-					else
-						allTypes = AssemblyDefinition.ReadAssembly(p).Modules.SelectMany(m => m.GetTypes());
-				}
-				else
-				{
-					allTypes = allTypes.Union(AssemblyDefinition.ReadAssembly(p).Modules.SelectMany(m => m.GetTypes()));
+					patchedAssembly.Add(c.Module.Assembly);
 				}
 			}
+			return patchedAssembly;
+		}
 
-			var allMethods = allTypes
+		public static bool PatchClass(TypeDefinition c, MethodReference hubMethod)
+		{
+			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
+			var attr = c.CustomAttributes.First(a => a.AttributeType.FullName == hotPatchAttrName);
+			BindingFlags searchFlags = HotPatchAttribute.DefaultFlags;
+			if (attr.HasFields)
+			{
+				var flags = attr.Fields.First(f => f.Name == "Flags");
+				searchFlags = (BindingFlags)flags.Argument.Value;
+			}
+
+
+
+			RemoveAttributes(hotPatchAttrName, c.CustomAttributes);
+			return false;
+		}
+
+		static MethodInfo GetMethodInfoOfDelegate(Type d)
+		{
+			return d.GetMethod("Invoke");
+		}
+
+		public static MethodReference SearchHubMethod(IEnumerable<TypeDefinition> allTypes, HashSet<AssemblyDefinition> pendingAssemblies)
+		{
+			// find	hub	methods
+			var hubs = allTypes
 				.Where(t => t.HasMethods)
 				.SelectMany(t => t.Methods)
-				.Where(m => m.HasCustomAttributes)
+				.Where(m =>	m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName	== typeof(HotPatchHubAttribute).FullName) != null)
 				.ToArray();
-
-			// find	hub	method
-			var hubs = allMethods
-				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchHubAttribute).FullName) != null).ToArray();
-
-			MethodReference hubMethod = null;
+			MethodDefinition hubMethod = null;
 			if (hubs.Length > 0)
 			{
 				hubMethod = hubs[0];
 			}
 			if (hubMethod == null)
 			{
-				Log("LuaHotPatchHub not found. It should be a public static method.");
-				return;
+				LogError("cannot find hub method. check HotPatchHubAttribute.");
+				return null;
 			}
 
-			var injectingTargets = allMethods
-				.Where(m => m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).ToString()) != null)
-				.ToArray();
+			var hotPatchHubAttrName = typeof(HotPatchHubAttribute).FullName;
+			foreach (var h in hubs)
+			{
+				if (RemoveAttributes(hotPatchHubAttrName, h.CustomAttributes))
+				{
+					pendingAssemblies.Add(h.Module.Assembly);
+				}
+			}
 
-			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
+			if (hubMethod.HasThis
+				|| hubMethod.IsPrivate)
+			{
+				LogError("hub method should be a public static method. while " + hubMethod.FullName + " is not.");
+				return null;
+			}
+
+			var method = GetMethodInfoOfDelegate(typeof(HotPatchHubDelegate));
+
+			// check return	type
+			if (method.ReturnType.FullName != hubMethod.ReturnType.FullName)
+			{
+				return null;
+			}
+
+			return hubMethod;
+		}
+
+		static IEnumerable<TypeDefinition> LoadAllTypes(string[] pathOfAssemblies, ReaderParameters readerParameters)
+		{
+			IEnumerable<TypeDefinition> allTypes = null;
+			foreach (var p in pathOfAssemblies)
+			{
+				if (allTypes == null)
+				{
+					if (readerParameters != null)
+						allTypes = AssemblyDefinition.ReadAssembly(p, readerParameters).Modules.SelectMany(m => m.GetTypes()).ToArray();
+					else
+						allTypes = AssemblyDefinition.ReadAssembly(p).Modules.SelectMany(m => m.GetTypes()).ToArray();
+				}
+				else
+				{
+					allTypes = allTypes.Union(AssemblyDefinition.ReadAssembly(p).Modules.SelectMany(m => m.GetTypes())).ToArray();
+				}
+			}
+			return allTypes;
+		}
+
+		public static bool Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null, bool processSymbols = false)
+		{
+			var readerParameters = new ReaderParameters { ReadSymbols = true };
+			var writerParameters = new WriterParameters { WriteSymbols = true };
+			IEnumerable<TypeDefinition> allTypes = LoadAllTypes(pathOfAssemblies, processSymbols ? readerParameters : null);
 
 			var pendingAssembly = new HashSet<AssemblyDefinition>();
 
-			var hotPatchAttrName = typeof(HotPatchAttribute).ToString();
+			// find	hub	methods
+			MethodReference hubMethod = SearchHubMethod(allTypes, pendingAssembly);
+			if (hubMethod == null)
+			{
+				LogError("LuaHotPatchHub not found. It should be a static method with signature " + GetMethodInfoOfDelegate(typeof(HotPatchHubDelegate)).ToString() + ". check hotpatch.HotPatchHudDelegate.");
+				return false;
+			}
+
+
+			// patch class
+			var classesToPatch = allTypes.Where(t => t.HasCustomAttributes && t.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).FullName) != null);
+			var patched = PatchClasses(classesToPatch, hubMethod);
+			pendingAssembly.UnionWith(patched);
+			classesToPatch = null;
+
+			// patch methods
+			var injectingTargets = allTypes
+				.Where(t =>	t.HasMethods)
+				.SelectMany(t => t.Methods)
+				.Where(m => m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).ToString()) != null)
+				.ToArray();
+
+			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
+			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
 
 			foreach (var m in injectingTargets)
 			{
@@ -308,9 +394,11 @@ namespace hotpatch
 			}
 
 			pathOfAssemblies = null;
+
+			return true;
 		}
 
-		static void RemoveAttributes(string attrName, Mono.Collections.Generic.Collection<CustomAttribute> customAttributes)
+		static bool RemoveAttributes(string attrName, Mono.Collections.Generic.Collection<CustomAttribute> customAttributes)
 		{
 			int index = -1;
 			for (var i = 0; i < customAttributes.Count; i++)
@@ -325,7 +413,9 @@ namespace hotpatch
 			if (index != -1)
 			{
 				customAttributes.RemoveAt(index);
+				return true;
 			}
+			return false;
 		}
 
 		static void ReplaceInstruction(ILProcessor ilProcessor, Instruction anchorInstruction, IEnumerable<Instruction> instructions)
