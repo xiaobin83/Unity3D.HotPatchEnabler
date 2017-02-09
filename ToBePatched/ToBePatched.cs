@@ -45,6 +45,20 @@ namespace ToBePatched
 	[HotPatch(Flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)]
 	public class ClassToBePatched
 	{
+		int IntField = 20;
+
+		int IntProp
+		{
+			get
+			{
+				throw new Exception("not patched");
+			}
+			set
+			{
+				throw new Exception("not patched");
+			}
+		}
+
 		void PriviateFunc()
 		{
 			throw new Exception("not patched");

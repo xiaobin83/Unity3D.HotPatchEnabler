@@ -76,21 +76,41 @@ namespace hotpatch
 			return patchedAssembly;
 		}
 
-		public static bool PatchClass(TypeDefinition c, MethodReference hubMethod)
+		static bool PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
+		{
+			return false;
+		}
+
+		static bool PatchClass(TypeDefinition c, MethodReference hubMethod)
 		{
 			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
 			var attr = c.CustomAttributes.First(a => a.AttributeType.FullName == hotPatchAttrName);
 			BindingFlags searchFlags = HotPatchAttribute.DefaultFlags;
+			var patchConstructors = HotPatchAttribute.DefaultPatchConstructors;
+			var patchProperties = HotPatchAttribute.DefaultPatchProperties;
 			if (attr.HasFields)
 			{
 				var flags = attr.Fields.First(f => f.Name == "Flags");
 				searchFlags = (BindingFlags)flags.Argument.Value;
 			}
 
+			var patched = false;
+			if (c.HasMethods)
+			{
+				foreach (var m in c.Methods)
+				{
+					if (PatchMethod(m, hubMethod, patchConstructors))
+						patched = true;
+				}
+			}
 
+			if (patchProperties && c.HasProperties)
+			{
+				// convert to patch	as method
+			}
 
 			RemoveAttributes(hotPatchAttrName, c.CustomAttributes);
-			return false;
+			return patched;
 		}
 
 		static MethodInfo GetMethodInfoOfDelegate(Type d)
