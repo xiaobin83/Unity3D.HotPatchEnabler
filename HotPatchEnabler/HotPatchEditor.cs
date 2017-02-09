@@ -203,14 +203,14 @@ namespace hotpatch
 
 				var signature = m.FullName;
 				Log(string.Format("Adding patching stub to \"{0}\"", signature));
-				var getMethodFromHandleMethodRef = m.Module.ImportReference(getMethodFromHandleMethod);
-				var objectTypeRef = m.Module.ImportReference(typeof(object));
-				var objectArrayTypeRef = m.Module.ImportReference(typeof(object[]));
-				var voidTypeRef = m.Module.ImportReference(typeof(void));
+				var getMethodFromHandleMethodRef = m.Module.Import(getMethodFromHandleMethod);
+				var objectTypeRef = m.Module.Import(typeof(object));
+				var objectArrayTypeRef = m.Module.Import(typeof(object[]));
+				var voidTypeRef = m.Module.Import(typeof(void));
 
 				var ilProcessor = m.Body.GetILProcessor();
 				// https://msdn.microsoft.com/en-us/library/system.reflection.emit.opcodes(v=vs.110).aspx
-				var hubMethodRef = m.Module.ImportReference(hubMethod);
+				var hubMethodRef = m.Module.Import(hubMethod);
 				var isStatic = m.IsStatic;
 
 				var continueCurrentMethod = ilProcessor.Create(OpCodes.Nop);
