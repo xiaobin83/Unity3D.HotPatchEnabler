@@ -104,18 +104,18 @@ namespace hotpatch
 			var hubs = allTypes
 				.Where(t => t.HasMethods)
 				.SelectMany(t => t.Methods)
-				.Where(m =>	m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName	== typeof(HotPatchHubAttribute).FullName) != null)
+				.Where(m =>	m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchHubAttribute).FullName) != null)
 				.ToArray();
 			MethodDefinition hubMethod = null;
 			if (hubs.Length > 0)
 			{
-				hubMethod = hubs[0];
+                hubMethod = hubs[0];
 			}
 			if (hubMethod == null)
 			{
-				LogError("cannot find hub method. check HotPatchHubAttribute.");
-				return null;
+				throw new Exception("cannot find hub method. check HotPatchHubAttribute.");
 			}
+			Log("using " + hubMethod.FullName + " as HotPatchHub.");
 
 			var hotPatchHubAttrName = typeof(HotPatchHubAttribute).FullName;
 			foreach (var h in hubs)
@@ -129,8 +129,7 @@ namespace hotpatch
 			if (hubMethod.HasThis
 				|| hubMethod.IsPrivate)
 			{
-				LogError("hub method should be a public static method. while " + hubMethod.FullName + " is not.");
-				return null;
+				throw new Exception("hub method should be a public static method. while " + hubMethod.FullName + " is not.");
 			}
 
 			var method = GetMethodInfoOfDelegate(typeof(HotPatchHubDelegate));
@@ -141,6 +140,22 @@ namespace hotpatch
 				return null;
 			}
 
+			// check parameters
+			var parameters = method.GetParameters();
+			var hubParameters = hubMethod.Parameters.ToArray();
+			if (parameters.Length != hubParameters.Length)
+			{
+				throw new Exception("hub method have different signature than " + method.ToString());
+			}
+			for (int i = 0; i < parameters.Length; ++i)
+			{
+				var pa = parameters[i];
+				var hubPa = hubParameters[i];
+				if (pa.ParameterType.FullName != hubPa.ParameterType.FullName)
+				{
+					throw new Exception("hub method has different parameter type at index " + i);
+				}
+			}
 			return hubMethod;
 		}
 
@@ -164,7 +179,7 @@ namespace hotpatch
 			return allTypes;
 		}
 
-		public static bool Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null, bool processSymbols = false)
+		public static void Active(string[] pathOfAssemblies, Func<string, string> writeAssemblyAs = null, bool processSymbols = false)
 		{
 			var readerParameters = new ReaderParameters { ReadSymbols = true };
 			var writerParameters = new WriterParameters { WriteSymbols = true };
@@ -174,12 +189,6 @@ namespace hotpatch
 
 			// find	hub	methods
 			MethodReference hubMethod = SearchHubMethod(allTypes, pendingAssembly);
-			if (hubMethod == null)
-			{
-				LogError("LuaHotPatchHub not found. It should be a static method with signature " + GetMethodInfoOfDelegate(typeof(HotPatchHubDelegate)).ToString() + ". check hotpatch.HotPatchHudDelegate.");
-				return false;
-			}
-
 
 			// patch class
 			var classesToPatch = allTypes.Where(t => t.HasCustomAttributes && t.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).FullName) != null);
@@ -394,8 +403,6 @@ namespace hotpatch
 			}
 
 			pathOfAssemblies = null;
-
-			return true;
 		}
 
 		static bool RemoveAttributes(string attrName, Mono.Collections.Generic.Collection<CustomAttribute> customAttributes)

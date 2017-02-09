@@ -14,11 +14,7 @@ namespace hotpatch
 		[OneTimeSetUp]
 		public void TestActivePatch()
 		{
-			bool activated = HotPatchEditor.Active(new[] { "ToBePatched.dll" }, (name) => name + ".mod.dll", processSymbols: true);
-			if (!activated)
-			{
-				throw new Exception("patch not activated");
-			}
+			HotPatchEditor.Active(new[] { "ToBePatched.dll" }, (name) => name + ".mod.dll", processSymbols: true);
 			var patched = Assembly.LoadFile(
 				Path.Combine(
 					Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
