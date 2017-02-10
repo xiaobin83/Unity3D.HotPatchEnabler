@@ -31,9 +31,6 @@ namespace hotpatch
 		public const BindingFlags DefaultFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 		public BindingFlags Flags = DefaultFlags;
 
-		public const bool DefaultPatchProperties = false;
-		public bool PatchProperties = DefaultPatchProperties;
-
 		public const bool DefaultPatchConstructors = false;
 		public bool PatchConstructors = DefaultPatchConstructors;
 	}

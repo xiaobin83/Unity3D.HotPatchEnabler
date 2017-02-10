@@ -42,10 +42,11 @@ namespace ToBePatched
 		}
 	}
 
-	[HotPatch(Flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)]
+	[HotPatch(PatchConstructors = true, Flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)]
 	public class ClassToBePatched
 	{
-		int IntField = 20;
+		public int IntField;
+		public string StringField;
 
 		int IntProp
 		{
@@ -59,29 +60,24 @@ namespace ToBePatched
 			}
 		}
 
-		void PriviateFunc()
+		public ClassToBePatched(int value)
 		{
-			throw new Exception("not patched");
+			IntField = value;
 		}
 
-		int PriviateFuncWithRet()
+		public ClassToBePatched(string value)
 		{
-			throw new Exception("not patched");
+			StringField = value;
 		}
 
-		public int PublicFuncWithRet()
+		public int GetIntField()
 		{
-			throw new Exception("not patched");
+			return IntField;
+		}
+		public string GetStringField()
+		{
+			return StringField;
 		}
 
-		public int PublicFuncWithOutAndRef(ref int a, out int b)
-		{
-			throw new Exception("not patched");
-		}
-
-		public static int StaticFuncWithParam(int p)
-		{
-			throw new Exception("not patched");
-		}
 	}
 }

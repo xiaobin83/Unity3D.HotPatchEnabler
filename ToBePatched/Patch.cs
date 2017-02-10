@@ -16,7 +16,7 @@ namespace ToBePatched
 			return null;
 		}
 
-		public delegate bool PatchDelegate(MethodInfo method, object target, out object retVal, object[] args);
+		public delegate bool PatchDelegate(MethodBase method, object target, out object retVal, object[] args);
 
 		static Dictionary<string, PatchDelegate> patches = new Dictionary<string, PatchDelegate>();
 
@@ -31,10 +31,8 @@ namespace ToBePatched
 		}
 
 		[HotPatchHub]
-		public static bool HotPatchHubDelegate(string signature, MethodBase method_, object target, out object retval, params object[] args)
+		public static bool HotPatchHubDelegate(string signature, MethodBase method, object target, out object retval, params object[] args)
 		{
-			var method = (MethodInfo)method_;
-
 			PatchDelegate patchedMethod;
 			if (patches.TryGetValue(signature, out patchedMethod))
 			{
@@ -42,7 +40,10 @@ namespace ToBePatched
 			}
 			else
 			{
-				retval = GetDefaultValue(method.ReturnType);
+				if (!method.IsConstructor)
+					retval = GetDefaultValue(((MethodInfo)method).ReturnType);
+				else
+					retval = null;
 				return false;
 			}
 		}

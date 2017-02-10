@@ -76,17 +76,53 @@ namespace hotpatch
 			return patchedAssembly;
 		}
 
-		static void PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
+		static MethodInfo getMethodFromHandleMethod_;
+		static MethodInfo getMethodFromHandleMethod
 		{
-			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
-			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
+			get
+			{
+				if (getMethodFromHandleMethod_ == null)
+				{
+					getMethodFromHandleMethod_ = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
+				}
+				return getMethodFromHandleMethod_;
+			}
+		}
 
+		static MethodInfo getConstructorFromHandleMethod_;
+		static MethodInfo getConstrutorFromHandleMethod
+		{
+			get
+			{
+				if (getConstructorFromHandleMethod_ == null)
+				{
+					getConstructorFromHandleMethod_ = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle(), new RuntimeTypeHandle()));
+				}
+				return getConstructorFromHandleMethod_;
+			}
+		}
 
+		static string hotPatchAttrName
+		{
+			get
+			{
+				return typeof(HotPatchAttribute).FullName;
+			}
+		}
+
+		static bool PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
+		{
 			RemoveAttributes(hotPatchAttrName, m.CustomAttributes);
+
+			if (m.IsConstructor && !patchConstructor)
+				return false;
 
 			var signature = m.FullName;
 			Log(string.Format("Adding patching stub to \"{0}\"", signature));
+
+			// import required stuff
 			var getMethodFromHandleMethodRef = m.Module.Import(getMethodFromHandleMethod);
+			var getConstructorFromHandleMethodRef = m.Module.Import(getConstrutorFromHandleMethod);
 			var objectTypeRef = m.Module.Import(typeof(object));
 			var objectArrayTypeRef = m.Module.Import(typeof(object[]));
 			var voidTypeRef = m.Module.Import(typeof(void));
@@ -101,6 +137,35 @@ namespace hotpatch
 			var anchorToRefOrOutArguments = ilProcessor.Create(OpCodes.Nop);
 			var anchorToReturn = ilProcessor.Create(OpCodes.Ret);
 
+			var anchorToReturnPart = ilProcessor.Create(OpCodes.Nop);
+
+			Instruction[] retPartInstructions;
+
+			if (m.IsConstructor)
+			{
+				var anchorToOverwriteParams = ilProcessor.Create(OpCodes.Nop);
+				retPartInstructions = new []
+				{
+					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
+					anchorToRefOrOutArguments,
+					continueCurrentMethod,
+				};
+			}
+			else
+			{
+				retPartInstructions = new[]
+				{
+					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
+					// ref/out params
+					anchorToRefOrOutArguments,
+					anchorToReturn,
+					continueCurrentMethod
+				};
+
+			}
+
+
+
 			if (m.HasParameters)
 			{
 				// local var, argument array
@@ -112,12 +177,31 @@ namespace hotpatch
 			var firstInstruction = ilProcessor.Create(OpCodes.Nop);
 			ilProcessor.InsertBefore(m.Body.Instructions.First(), firstInstruction); // place holder
 
+			var anchorToMethodOf = ilProcessor.Create(OpCodes.Nop);
+			Instruction[] methodOfInstructions;
+			if (m.IsConstructor)
+			{
+				methodOfInstructions = new []
+				{
+					ilProcessor.Create(OpCodes.Ldtoken, m),
+					ilProcessor.Create(OpCodes.Ldtoken, m.DeclaringType),
+					ilProcessor.Create(OpCodes.Call, getConstructorFromHandleMethodRef),
+				};
+			}
+			else
+			{
+				methodOfInstructions = new [] 
+				{
+					ilProcessor.Create(OpCodes.Ldtoken, m),
+					ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
+				};
+			}
+
 			var instructions = new[]
 			{
 				ilProcessor.Create(OpCodes.Ldstr, signature),
 				// http://evain.net/blog/articles/2010/05/05/parameterof-propertyof-methodof/
-				ilProcessor.Create(OpCodes.Ldtoken, m),
-				ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
+				anchorToMethodOf,
 				// push	null or this
 				isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
 				// ret value
@@ -126,15 +210,12 @@ namespace hotpatch
 				anchorToArguments,
 				// call
 				ilProcessor.Create(OpCodes.Call, hubMethodRef),
-				ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
-				// ref/out params
-				anchorToRefOrOutArguments,
-				// return part
-				anchorToReturn,
-				continueCurrentMethod
-			};
 
+				anchorToReturnPart,
+			};
 			ReplaceInstruction(ilProcessor, firstInstruction, instructions);
+			ReplaceInstruction(ilProcessor, anchorToMethodOf, methodOfInstructions);
+			ReplaceInstruction(ilProcessor, anchorToReturnPart, retPartInstructions);
 
 			var paramStart = 0;
 			if (!isStatic)
@@ -202,19 +283,20 @@ namespace hotpatch
 				ReplaceInstruction(ilProcessor, anchorToArguments, paramsInstructions);
 			}
 
-			if (hasRefOrOutParameter)
+			if (hasRefOrOutParameter || m.IsConstructor)
 			{
 				var refOutInstructions = new List<Instruction>();
 				for (int i = 0; i < m.Parameters.Count; ++i)
 				{
 					var param = m.Parameters[i];
-					if (param.IsOut || param.ParameterType.IsByReference)
+					if (param.IsOut || param.ParameterType.IsByReference || m.IsConstructor)
 					{
 						// ith_refOutArg = arg[i]
 
 
 						// ith_refOutArg
-						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
+						if (param.IsOut || param.ParameterType.IsByReference)
+							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
 
 						// arg
 						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 2));
@@ -224,22 +306,26 @@ namespace hotpatch
 
 						// (type)arg[i]
 						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldelem_Ref));
-						TypeReference elemType = param.ParameterType.GetElementType();
+
+						// ith_refOutArg = (type)arg[i]
+						TypeReference elemType;
+						elemType = param.ParameterType.GetElementType();
 						if (elemType.IsValueType)
 						{
 							refOutInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, elemType));
-						}
-						if (elemType.IsValueType)
-						{
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Stobj, elemType));
+							if (param.IsOut || param.ParameterType.IsByReference)
+								refOutInstructions.Add(ilProcessor.Create(OpCodes.Stobj, elemType));
+							else
+								refOutInstructions.Add(ilProcessor.Create(OpCodes.Starg, i + paramStart));
 						}
 						else
 						{
 							refOutInstructions.Add(ilProcessor.Create(OpCodes.Castclass, elemType));
-							// ith_refOutArg = (type)arg[i]
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Stind_Ref));
+							if (param.IsOut || param.ParameterType.IsByReference)
+								refOutInstructions.Add(ilProcessor.Create(OpCodes.Stind_Ref));
+							else
+								refOutInstructions.Add(ilProcessor.Create(OpCodes.Starg, i + paramStart));
 						}
-
 					}
 				}
 				ReplaceInstruction(ilProcessor, anchorToRefOrOutArguments, refOutInstructions);
@@ -262,6 +348,8 @@ namespace hotpatch
 				retInstructions.Add(ilProcessor.Create(OpCodes.Ret));
 				ReplaceInstruction(ilProcessor, anchorToReturn, retInstructions);
 			}
+
+			return true;
 		}
 
 
@@ -270,24 +358,35 @@ namespace hotpatch
 			var patched = false;
 			foreach (var m in methods)
 			{
-				PatchMethod(m, hubMethod, patchConstructors);
-				if (pendingAssembly != null)
-					pendingAssembly.Add(m.Module.Assembly);
+				if (PatchMethod(m, hubMethod, patchConstructors))
+				{
+					if (pendingAssembly != null)
+						pendingAssembly.Add(m.Module.Assembly);
+				}
 			}
 			return patched;
 		}
 
 		static bool PatchClass(TypeDefinition c, MethodReference hubMethod)
 		{
-			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
 			var attr = c.CustomAttributes.First(a => a.AttributeType.FullName == hotPatchAttrName);
 			BindingFlags searchFlags = HotPatchAttribute.DefaultFlags;
 			var patchConstructors = HotPatchAttribute.DefaultPatchConstructors;
-			var patchProperties = HotPatchAttribute.DefaultPatchProperties;
 			if (attr.HasFields)
 			{
-				var flags = attr.Fields.First(f => f.Name == "Flags");
-				searchFlags = (BindingFlags)flags.Argument.Value;
+				try
+				{
+					var flagsField = attr.Fields.First(f => f.Name == "Flags");
+					searchFlags = (BindingFlags)flagsField.Argument.Value;
+				}
+				catch { }
+
+				try
+				{
+					var patchConstructorsField = attr.Fields.First(f => f.Name == "PatchConstructors");
+					patchConstructors = (bool)patchConstructorsField.Argument.Value;
+				}
+				catch { }
 			}
 
 			var patched = false;
@@ -295,11 +394,6 @@ namespace hotpatch
 			{
 				PatchMethods(c.Methods, hubMethod, null, patchConstructors);
 				patched	= true;
-			}
-
-			if (patchProperties && c.HasProperties)
-			{
-				// convert to patch	as method
 			}
 
 			RemoveAttributes(hotPatchAttrName, c.CustomAttributes);

@@ -27,7 +27,7 @@ namespace hotpatch
 		}
 
 		[Test]
-		public void TestMethodsToBePatchedType_PublicFunc()
+		public void TestMethodsToBePatched_PublicFunc()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			MethodsToBePatchedType.InvokeMember("PublicFunc", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
@@ -35,14 +35,14 @@ namespace hotpatch
 
 
 		[Test]
-		public void TestMethodsToBePatchedType_PrivateFunc()
+		public void TestMethodsToBePatched_PrivateFunc()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			MethodsToBePatchedType.InvokeMember("PrivateFunc", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.NonPublic, null, inst, new object[] { });
 		}
 
 		[Test]
-		public void TestMethodsToBePatchedType_PrivateFuncWithRet()
+		public void TestMethodsToBePatched_PrivateFuncWithRet()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			var ret = (int)MethodsToBePatchedType.InvokeMember("PriviateFuncWithRet", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.NonPublic, null, inst, new object[] { });
@@ -50,7 +50,7 @@ namespace hotpatch
 		}
 
 		[Test]
-		public void TestMethodsToBePatchedType_PublicFuncWithRet()
+		public void TestMethodsToBePatched_PublicFuncWithRet()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			var ret = (int)MethodsToBePatchedType.InvokeMember("PublicFuncWithRet", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
@@ -58,7 +58,7 @@ namespace hotpatch
 		}
 
 		[Test]
-		public void TestMethodsToBePatchedType_PublicFuncWithOutAndRef()
+		public void TestMethodsToBePatched_PublicFuncWithOutAndRef()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			var args = new object[] { 10, null };
@@ -69,7 +69,7 @@ namespace hotpatch
 		}
 
 		[Test]
-		public void TestMethodsToBePatchedType_StaticFuncWithParam()
+		public void TestMethodsToBePatched_StaticFuncWithParam()
 		{
 			var inst = Activator.CreateInstance(MethodsToBePatchedType);
 			var args = new object[] { 12345 };
@@ -77,7 +77,22 @@ namespace hotpatch
 			Assert.AreEqual(12345, ret);
 		}
 
+		// ===================
 
+		[Test]
+		public void TestClassToBePached_Constructor()
+		{
+			var inst = Activator.CreateInstance(ClassToBePatchedType, 20);
+			var ret = (int)ClassToBePatchedType.InvokeMember("GetIntField", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
+			Assert.AreEqual(60, ret); // GetIntField is patched to return IntField * 2
+		}
 
+		[Test]
+		public void TestClassToBePached_Constructor2()
+		{
+			var inst = Activator.CreateInstance(ClassToBePatchedType, "hello");
+			var ret = (string)ClassToBePatchedType.InvokeMember("GetStringField", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
+			Assert.AreEqual("world", ret);
+		}
 	}
 }
