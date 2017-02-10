@@ -114,25 +114,25 @@ namespace hotpatch
 
 			var instructions = new[]
 			{
-					ilProcessor.Create(OpCodes.Ldstr, signature),
-					// http://evain.net/blog/articles/2010/05/05/parameterof-propertyof-methodof/
-					ilProcessor.Create(OpCodes.Ldtoken, m),
-					ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
-					// push	null or this
-					isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
-					// ret value
-					ilProcessor.Create(OpCodes.Ldloca_S, (byte)(m.Body.Variables.Count - 1)),
-					// copy arguments to params object[]
-					anchorToArguments,
-					// call
-					ilProcessor.Create(OpCodes.Call, hubMethodRef),
-					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
-					// ref/out params
-					anchorToRefOrOutArguments,
-					// return part
-					anchorToReturn,
-					continueCurrentMethod
-				};
+				ilProcessor.Create(OpCodes.Ldstr, signature),
+				// http://evain.net/blog/articles/2010/05/05/parameterof-propertyof-methodof/
+				ilProcessor.Create(OpCodes.Ldtoken, m),
+				ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
+				// push	null or this
+				isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
+				// ret value
+				ilProcessor.Create(OpCodes.Ldloca_S, (byte)(m.Body.Variables.Count - 1)),
+				// copy arguments to params object[]
+				anchorToArguments,
+				// call
+				ilProcessor.Create(OpCodes.Call, hubMethodRef),
+				ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
+				// ref/out params
+				anchorToRefOrOutArguments,
+				// return part
+				anchorToReturn,
+				continueCurrentMethod
+			};
 
 			ReplaceInstruction(ilProcessor, firstInstruction, instructions);
 
@@ -147,12 +147,12 @@ namespace hotpatch
 			if (m.HasParameters)
 			{
 				var paramsInstructions = new List<Instruction>()
-					{
-						ilProcessor.Create(OpCodes.Ldc_I4, m.Parameters.Count),
-						ilProcessor.Create(OpCodes.Newarr, objectTypeRef),
-						ilProcessor.Create(OpCodes.Dup),
-						ilProcessor.Create(OpCodes.Stloc, m.Body.Variables.Count - 2)
-					};
+				{
+					ilProcessor.Create(OpCodes.Ldc_I4, m.Parameters.Count),
+					ilProcessor.Create(OpCodes.Newarr, objectTypeRef),
+					ilProcessor.Create(OpCodes.Dup),
+					ilProcessor.Create(OpCodes.Stloc, m.Body.Variables.Count - 2)
+				};
 
 				for (int i = 0; i < m.Parameters.Count; ++i)
 				{
