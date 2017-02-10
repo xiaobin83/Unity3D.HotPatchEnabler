@@ -95,6 +95,15 @@ namespace ToBePatched
 					retVal = t.IntField * 2;
 					return true;
 				});
+
+
+			ToBePatched.Patch.Add(
+				"System.Int32 ToBePatched.ClassToBePatched::get_IntProp()",
+				delegate (MethodBase method_, object target, out object retVal, object[] args)
+				{
+					retVal = 1234;
+					return true;
+				});
 		}
 	}
 }

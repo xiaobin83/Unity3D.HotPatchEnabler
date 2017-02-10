@@ -78,6 +78,10 @@ namespace ToBePatched
 		{
 			return StringField;
 		}
+		public int GetIntProp()
+		{
+			return IntProp;
+		}
 
 	}
 }

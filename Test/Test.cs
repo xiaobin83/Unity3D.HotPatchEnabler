@@ -94,5 +94,14 @@ namespace hotpatch
 			var ret = (string)ClassToBePatchedType.InvokeMember("GetStringField", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
 			Assert.AreEqual("world", ret);
 		}
+
+		[Test]
+		public void TestClassToBePached_IntProp()
+		{
+			var inst = Activator.CreateInstance(ClassToBePatchedType, 20);
+			var ret = (int)ClassToBePatchedType.InvokeMember("GetIntProp", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, new object[] { });
+			Assert.AreEqual(1234, ret);
+		}
+
 	}
 }
