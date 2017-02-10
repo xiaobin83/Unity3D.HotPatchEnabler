@@ -143,7 +143,6 @@ namespace hotpatch
 
 			if (m.IsConstructor)
 			{
-				var anchorToOverwriteParams = ilProcessor.Create(OpCodes.Nop);
 				retPartInstructions = new []
 				{
 					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
