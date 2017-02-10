@@ -76,9 +76,205 @@ namespace hotpatch
 			return patchedAssembly;
 		}
 
-		static bool PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
+		static void PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
 		{
-			return false;
+			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
+			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
+
+
+			RemoveAttributes(hotPatchAttrName, m.CustomAttributes);
+
+			var signature = m.FullName;
+			Log(string.Format("Adding patching stub to \"{0}\"", signature));
+			var getMethodFromHandleMethodRef = m.Module.Import(getMethodFromHandleMethod);
+			var objectTypeRef = m.Module.Import(typeof(object));
+			var objectArrayTypeRef = m.Module.Import(typeof(object[]));
+			var voidTypeRef = m.Module.Import(typeof(void));
+
+			var ilProcessor = m.Body.GetILProcessor();
+			// https://msdn.microsoft.com/en-us/library/system.reflection.emit.opcodes(v=vs.110).aspx
+			var hubMethodRef = m.Module.Import(hubMethod);
+			var isStatic = m.IsStatic;
+
+			var continueCurrentMethod = ilProcessor.Create(OpCodes.Nop);
+			var anchorToArguments = ilProcessor.Create(OpCodes.Ldnull);
+			var anchorToRefOrOutArguments = ilProcessor.Create(OpCodes.Nop);
+			var anchorToReturn = ilProcessor.Create(OpCodes.Ret);
+
+			if (m.HasParameters)
+			{
+				// local var, argument array
+				m.Body.Variables.Add(new VariableDefinition(objectArrayTypeRef));
+			}
+			// local val, ret val (last one)
+			m.Body.Variables.Add(new VariableDefinition(objectTypeRef));
+
+			var firstInstruction = ilProcessor.Create(OpCodes.Nop);
+			ilProcessor.InsertBefore(m.Body.Instructions.First(), firstInstruction); // place holder
+
+			var instructions = new[]
+			{
+					ilProcessor.Create(OpCodes.Ldstr, signature),
+					// http://evain.net/blog/articles/2010/05/05/parameterof-propertyof-methodof/
+					ilProcessor.Create(OpCodes.Ldtoken, m),
+					ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
+					// push	null or this
+					isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
+					// ret value
+					ilProcessor.Create(OpCodes.Ldloca_S, (byte)(m.Body.Variables.Count - 1)),
+					// copy arguments to params object[]
+					anchorToArguments,
+					// call
+					ilProcessor.Create(OpCodes.Call, hubMethodRef),
+					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
+					// ref/out params
+					anchorToRefOrOutArguments,
+					// return part
+					anchorToReturn,
+					continueCurrentMethod
+				};
+
+			ReplaceInstruction(ilProcessor, firstInstruction, instructions);
+
+			var paramStart = 0;
+			if (!isStatic)
+			{
+				paramStart = 1;
+			}
+
+			// process arguments
+			bool hasRefOrOutParameter = false;
+			if (m.HasParameters)
+			{
+				var paramsInstructions = new List<Instruction>()
+					{
+						ilProcessor.Create(OpCodes.Ldc_I4, m.Parameters.Count),
+						ilProcessor.Create(OpCodes.Newarr, objectTypeRef),
+						ilProcessor.Create(OpCodes.Dup),
+						ilProcessor.Create(OpCodes.Stloc, m.Body.Variables.Count - 2)
+					};
+
+				for (int i = 0; i < m.Parameters.Count; ++i)
+				{
+					var param = m.Parameters[i];
+					if (param.IsOut)
+					{
+						// placeholder for outs
+						hasRefOrOutParameter = true;
+					}
+					else
+					{
+						paramsInstructions.Add(ilProcessor.Create(OpCodes.Dup));
+						paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
+						paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
+						if (param.ParameterType.IsByReference)
+						{
+							hasRefOrOutParameter = true;
+
+							var elemType = param.ParameterType.GetElementType();
+
+							if (elemType.IsValueType)
+							{
+								paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldobj, elemType));
+							}
+							else
+							{
+								paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldind_Ref));
+							}
+
+							if (elemType.IsValueType)
+							{
+								paramsInstructions.Add(ilProcessor.Create(OpCodes.Box, elemType));
+							}
+
+							paramsInstructions.Add(ilProcessor.Create(OpCodes.Stelem_Ref));
+						}
+						else
+						{
+							if (param.ParameterType.IsPrimitive)
+							{
+								paramsInstructions.Add(ilProcessor.Create(OpCodes.Box, param.ParameterType));
+							}
+							paramsInstructions.Add(ilProcessor.Create(OpCodes.Stelem_Ref));
+						}
+					}
+				}
+				ReplaceInstruction(ilProcessor, anchorToArguments, paramsInstructions);
+			}
+
+			if (hasRefOrOutParameter)
+			{
+				var refOutInstructions = new List<Instruction>();
+				for (int i = 0; i < m.Parameters.Count; ++i)
+				{
+					var param = m.Parameters[i];
+					if (param.IsOut || param.ParameterType.IsByReference)
+					{
+						// ith_refOutArg = arg[i]
+
+
+						// ith_refOutArg
+						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
+
+						// arg
+						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 2));
+
+						// arg[i]
+						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
+
+						// (type)arg[i]
+						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldelem_Ref));
+						TypeReference elemType = param.ParameterType.GetElementType();
+						if (elemType.IsValueType)
+						{
+							refOutInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, elemType));
+						}
+						if (elemType.IsValueType)
+						{
+							refOutInstructions.Add(ilProcessor.Create(OpCodes.Stobj, elemType));
+						}
+						else
+						{
+							refOutInstructions.Add(ilProcessor.Create(OpCodes.Castclass, elemType));
+							// ith_refOutArg = (type)arg[i]
+							refOutInstructions.Add(ilProcessor.Create(OpCodes.Stind_Ref));
+						}
+
+					}
+				}
+				ReplaceInstruction(ilProcessor, anchorToRefOrOutArguments, refOutInstructions);
+			}
+
+
+			// process return
+			if (m.ReturnType.FullName != voidTypeRef.FullName)
+			{
+				var retInstructions = new List<Instruction>();
+				retInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 1));
+				if (m.ReturnType.IsPrimitive)
+				{
+					retInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, m.ReturnType));
+				}
+				else
+				{
+					retInstructions.Add(ilProcessor.Create(OpCodes.Castclass, m.ReturnType));
+				}
+				retInstructions.Add(ilProcessor.Create(OpCodes.Ret));
+				ReplaceInstruction(ilProcessor, anchorToReturn, retInstructions);
+			}
+		}
+
+
+		static bool PatchMethods(IEnumerable<MethodDefinition> methods, MethodReference hubMethod, HashSet<AssemblyDefinition> pendingAssembly, bool patchConstructors)
+		{
+			var patched = false;
+			foreach (var m in methods)
+			{
+				PatchMethod(m, hubMethod, patchConstructors);
+				if (pendingAssembly != null)
+					pendingAssembly.Add(m.Module.Assembly);
+			}
+			return patched;
 		}
 
 		static bool PatchClass(TypeDefinition c, MethodReference hubMethod)
@@ -97,11 +293,8 @@ namespace hotpatch
 			var patched = false;
 			if (c.HasMethods)
 			{
-				foreach (var m in c.Methods)
-				{
-					if (PatchMethod(m, hubMethod, patchConstructors))
-						patched = true;
-				}
+				PatchMethods(c.Methods, hubMethod, null, patchConstructors);
+				patched	= true;
 			}
 
 			if (patchProperties && c.HasProperties)
@@ -129,7 +322,7 @@ namespace hotpatch
 			MethodDefinition hubMethod = null;
 			if (hubs.Length > 0)
 			{
-                hubMethod = hubs[0];
+				hubMethod = hubs[0];
 			}
 			if (hubMethod == null)
 			{
@@ -220,197 +413,9 @@ namespace hotpatch
 			var injectingTargets = allTypes
 				.Where(t =>	t.HasMethods)
 				.SelectMany(t => t.Methods)
-				.Where(m => m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).ToString()) != null)
-				.ToArray();
+				.Where(m => m.HasCustomAttributes && m.CustomAttributes.FirstOrDefault(a => a.AttributeType.FullName == typeof(HotPatchAttribute).ToString()) != null);
 
-			var getMethodFromHandleMethod = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle()));
-			var hotPatchAttrName = typeof(HotPatchAttribute).FullName;
-
-			foreach (var m in injectingTargets)
-			{
-				RemoveAttributes(hotPatchAttrName, m.CustomAttributes);
-
-				var signature = m.FullName;
-				Log(string.Format("Adding patching stub to \"{0}\"", signature));
-				var getMethodFromHandleMethodRef = m.Module.Import(getMethodFromHandleMethod);
-				var objectTypeRef = m.Module.Import(typeof(object));
-				var objectArrayTypeRef = m.Module.Import(typeof(object[]));
-				var voidTypeRef = m.Module.Import(typeof(void));
-
-				var ilProcessor = m.Body.GetILProcessor();
-				// https://msdn.microsoft.com/en-us/library/system.reflection.emit.opcodes(v=vs.110).aspx
-				var hubMethodRef = m.Module.Import(hubMethod);
-				var isStatic = m.IsStatic;
-
-				var continueCurrentMethod = ilProcessor.Create(OpCodes.Nop);
-				var anchorToArguments = ilProcessor.Create(OpCodes.Ldnull);
-				var anchorToRefOrOutArguments = ilProcessor.Create(OpCodes.Nop);
-				var anchorToReturn = ilProcessor.Create(OpCodes.Ret);
-
-				if (m.HasParameters)
-				{
-					// local var, argument array
-					m.Body.Variables.Add(new VariableDefinition(objectArrayTypeRef));
-				}
-				// local val, ret val (last one)
-				m.Body.Variables.Add(new VariableDefinition(objectTypeRef));
-
-				var firstInstruction = ilProcessor.Create(OpCodes.Nop);
-				ilProcessor.InsertBefore(m.Body.Instructions.First(), firstInstruction); // place holder
-
-				var instructions = new[]
-				{
-					ilProcessor.Create(OpCodes.Ldstr, signature),
-					// http://evain.net/blog/articles/2010/05/05/parameterof-propertyof-methodof/
-					ilProcessor.Create(OpCodes.Ldtoken, m),
-					ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
-					// push	null or this
-					isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
-					// ret value
-					ilProcessor.Create(OpCodes.Ldloca_S, (byte)(m.Body.Variables.Count - 1)),
-					// copy arguments to params object[]
-					anchorToArguments,
-					// call
-					ilProcessor.Create(OpCodes.Call, hubMethodRef),
-					ilProcessor.Create(OpCodes.Brfalse, continueCurrentMethod),
-					// ref/out params
-					anchorToRefOrOutArguments,
-					// return part
-					anchorToReturn,
-					continueCurrentMethod
-				};
-
-				ReplaceInstruction(ilProcessor, firstInstruction, instructions);
-
-				var paramStart = 0;
-				if (!isStatic)
-				{
-					paramStart = 1;
-				}
-
-				// process arguments
-				bool hasRefOrOutParameter = false;
-				if (m.HasParameters)
-				{
-					var paramsInstructions = new List<Instruction>()
-					{
-						ilProcessor.Create(OpCodes.Ldc_I4, m.Parameters.Count),
-						ilProcessor.Create(OpCodes.Newarr, objectTypeRef),
-						ilProcessor.Create(OpCodes.Dup),
-						ilProcessor.Create(OpCodes.Stloc, m.Body.Variables.Count - 2)
-					};
-
-					for (int i = 0; i < m.Parameters.Count; ++i)
-					{
-						var param = m.Parameters[i];
-						if (param.IsOut)
-						{
-							// placeholder for outs
-							hasRefOrOutParameter = true;
-						}
-						else
-						{
-							paramsInstructions.Add(ilProcessor.Create(OpCodes.Dup));
-							paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
-							paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
-							if (param.ParameterType.IsByReference)
-							{
-								hasRefOrOutParameter = true;
-
-								var elemType = param.ParameterType.GetElementType();
-
-								if (elemType.IsValueType)
-								{
-									paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldobj, elemType));
-								}
-								else
-								{
-									paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldind_Ref));
-								}
-
-								if (elemType.IsValueType)
-								{
-									paramsInstructions.Add(ilProcessor.Create(OpCodes.Box, elemType));
-								}
-
-								paramsInstructions.Add(ilProcessor.Create(OpCodes.Stelem_Ref));
-							}
-							else
-							{
-								if (param.ParameterType.IsPrimitive)
-								{
-									paramsInstructions.Add(ilProcessor.Create(OpCodes.Box, param.ParameterType));
-								}
-								paramsInstructions.Add(ilProcessor.Create(OpCodes.Stelem_Ref));
-							}
-						}
-					}
-					ReplaceInstruction(ilProcessor, anchorToArguments, paramsInstructions);
-				}
-
-				if (hasRefOrOutParameter)
-				{
-					var refOutInstructions = new List<Instruction>();
-					for (int i = 0; i < m.Parameters.Count; ++i)
-					{
-						var param = m.Parameters[i];
-						if (param.IsOut || param.ParameterType.IsByReference)
-						{
-							// ith_refOutArg = arg[i]
-
-
-							// ith_refOutArg
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
-
-							// arg
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 2));
-
-							// arg[i]
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
-
-							// (type)arg[i]
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldelem_Ref));
-							TypeReference elemType = param.ParameterType.GetElementType();
-							if (elemType.IsValueType)
-							{
-								refOutInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, elemType));
-							}
-							if (elemType.IsValueType)
-							{
-								refOutInstructions.Add(ilProcessor.Create(OpCodes.Stobj, elemType));
-							}
-							else
-							{
-								refOutInstructions.Add(ilProcessor.Create(OpCodes.Castclass, elemType));
-								// ith_refOutArg = (type)arg[i]
-								refOutInstructions.Add(ilProcessor.Create(OpCodes.Stind_Ref));
-							}
-
-						}
-					}
-					ReplaceInstruction(ilProcessor, anchorToRefOrOutArguments, refOutInstructions);
-				}
-
-
-				// process return
-				if (m.ReturnType.FullName != voidTypeRef.FullName)
-				{
-					var retInstructions = new List<Instruction>();
-					retInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 1));
-					if (m.ReturnType.IsPrimitive)
-					{
-						retInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, m.ReturnType));
-					}
-					else
-					{
-						retInstructions.Add(ilProcessor.Create(OpCodes.Castclass, m.ReturnType));
-					}
-					retInstructions.Add(ilProcessor.Create(OpCodes.Ret));
-					ReplaceInstruction(ilProcessor, anchorToReturn, retInstructions);
-				}
-
-				pendingAssembly.Add(m.Module.Assembly);
-			}
+			PatchMethods(injectingTargets, hubMethod, pendingAssembly, patchConstructors: false);
 
 			foreach (var a in pendingAssembly)
 			{
