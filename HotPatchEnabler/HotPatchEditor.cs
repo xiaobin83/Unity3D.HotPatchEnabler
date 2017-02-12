@@ -89,19 +89,6 @@ namespace hotpatch
 			}
 		}
 
-		static MethodInfo getConstructorFromHandleMethod_;
-		static MethodInfo getConstrutorFromHandleMethod
-		{
-			get
-			{
-				if (getConstructorFromHandleMethod_ == null)
-				{
-					getConstructorFromHandleMethod_ = (MethodInfo)MemberInfo(() => MethodInfo.GetMethodFromHandle(new RuntimeMethodHandle(), new RuntimeTypeHandle()));
-				}
-				return getConstructorFromHandleMethod_;
-			}
-		}
-
 		static string hotPatchAttrName
 		{
 			get
@@ -122,7 +109,6 @@ namespace hotpatch
 
 			// import required stuff
 			var getMethodFromHandleMethodRef = m.Module.Import(getMethodFromHandleMethod);
-			var getConstructorFromHandleMethodRef = m.Module.Import(getConstrutorFromHandleMethod);
 			var objectTypeRef = m.Module.Import(typeof(object));
 			var objectArrayTypeRef = m.Module.Import(typeof(object[]));
 			var voidTypeRef = m.Module.Import(typeof(void));
@@ -178,24 +164,11 @@ namespace hotpatch
 
 			var anchorToMethodOf = ilProcessor.Create(OpCodes.Nop);
 			Instruction[] methodOfInstructions;
-			if (m.IsConstructor)
+			methodOfInstructions = new [] 
 			{
-				methodOfInstructions = new []
-				{
-					ilProcessor.Create(OpCodes.Ldtoken, m),
-					ilProcessor.Create(OpCodes.Ldtoken, m.DeclaringType),
-					ilProcessor.Create(OpCodes.Call, getConstructorFromHandleMethodRef),
-				};
-			}
-			else
-			{
-				methodOfInstructions = new [] 
-				{
-					ilProcessor.Create(OpCodes.Ldtoken, m),
-					ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
-				};
-			}
-
+				ilProcessor.Create(OpCodes.Ldtoken, m),
+				ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
+			};
 			var instructions = new[]
 			{
 				ilProcessor.Create(OpCodes.Ldstr, signature),
