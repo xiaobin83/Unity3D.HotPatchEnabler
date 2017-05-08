@@ -67,6 +67,15 @@ namespace ToBePatched
 					return true;
 				});
 
+			ToBePatched.Patch.Add(
+				"System.Void ToBePatched.MethodsToBePatched::FuncWithEnum(System.Reflection.BindingFlags)",
+				delegate (MethodBase method, object target, out object retVal, object[] args)
+				{
+					retVal = (int)args[0];
+					return true;
+				});
+
+
 			// ==================
 
 			ToBePatched.Patch.Add(

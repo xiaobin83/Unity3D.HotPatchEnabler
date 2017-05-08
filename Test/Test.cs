@@ -77,6 +77,14 @@ namespace hotpatch
 			Assert.AreEqual(12345, ret);
 		}
 
+		[Test]
+		public void TestMethodsToBePatched_FuncWithEnum()
+		{
+			var inst = Activator.CreateInstance(MethodsToBePatchedType);
+			var args = new object[] { System.Reflection.BindingFlags.GetField };
+			MethodsToBePatchedType.InvokeMember("FuncWithEnum", BindingFlags.InvokeMethod | BindingFlags.Instance | BindingFlags.Public, null, inst, args);
+		}
+
 		// ===================
 
 		[Test]

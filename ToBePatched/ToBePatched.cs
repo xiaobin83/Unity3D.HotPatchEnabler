@@ -40,6 +40,12 @@ namespace ToBePatched
 		{
 			throw new Exception("not patched");
 		}
+
+		[HotPatch]
+		public void FuncWithEnum(System.Reflection.BindingFlags m)
+		{
+			throw new Exception("not patched");
+		}
 	}
 
 	[HotPatch(PatchConstructors = true, Flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)]

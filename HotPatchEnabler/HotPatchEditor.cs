@@ -244,7 +244,7 @@ namespace hotpatch
 						}
 						else
 						{
-							if (param.ParameterType.IsPrimitive)
+							if (param.ParameterType.IsValueType)
 							{
 								paramsInstructions.Add(ilProcessor.Create(OpCodes.Box, param.ParameterType));
 							}
@@ -309,7 +309,7 @@ namespace hotpatch
 			{
 				var retInstructions = new List<Instruction>();
 				retInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 1));
-				if (m.ReturnType.IsPrimitive)
+				if (m.ReturnType.IsValueType)
 				{
 					retInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, m.ReturnType));
 				}

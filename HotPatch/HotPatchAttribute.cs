@@ -26,6 +26,12 @@ using System.Reflection;
 
 namespace hotpatch
 {
+	public enum MyEnum
+	{
+		A,
+		B
+	}
+
 	public class HotPatchAttribute : Attribute
 	{
 		public const BindingFlags DefaultFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
