@@ -262,8 +262,7 @@ namespace hotpatch
 
 			if (m.HasParameters)
 			{
-				// local var, temp obj, argument array
-				m.Body.Variables.Add(new VariableDefinition(objectTypeRef));
+				// local var, argument array
 				m.Body.Variables.Add(new VariableDefinition(objectArrayTypeRef));
 			}
 			// local val, ret val (last one)
