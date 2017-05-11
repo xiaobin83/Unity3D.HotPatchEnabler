@@ -46,7 +46,17 @@ namespace ToBePatched
 		{
 			throw new Exception("not patched");
 		}
-	}
+
+		public void Test(System.Reflection.BindingFlags f)
+		{
+			var objs2 = new object[] { f };
+			Test2(objs2);
+		}
+
+		void Test2(object[] a)
+		{
+		}
+    }
 
 	[HotPatch(PatchConstructors = true, Flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)]
 	public class ClassToBePatched

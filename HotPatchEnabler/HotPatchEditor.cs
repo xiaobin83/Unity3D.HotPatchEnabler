@@ -97,6 +97,117 @@ namespace hotpatch
 			}
 		}
 
+		static void EmmitStloc(ILProcessor ilProcessor, List<Instruction> instructions, int index)
+		{
+			if (index <= 3)
+			{
+				if (index == 0)
+					instructions.Add(ilProcessor.Create(OpCodes.Stloc_0));
+				else if (index == 1)
+					instructions.Add(ilProcessor.Create(OpCodes.Stloc_1));
+				else if (index == 2)
+					instructions.Add(ilProcessor.Create(OpCodes.Stloc_2));
+				else if (index == 3)
+					instructions.Add(ilProcessor.Create(OpCodes.Stloc_3));
+			}
+			else if (index <= 255)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Starg_S, (byte)index));
+			}
+			else
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Stloc, index));
+			}
+		}
+
+		static void EmmitLdc_I4(ILProcessor ilProcessor, List<Instruction> instructions, int i)
+		{
+			if (i == -1)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_M1));
+			}
+			else if (i == 0)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_0));
+			}
+			else if (i == 1)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_1));
+			}
+			else if (i == 2)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_2));
+			}
+			else if (i == 3)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_3));
+			}
+			else if (i == 4)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_4));
+			}
+			else if (i == 5)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_5));
+			}
+			else if (i == 6)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_6));
+			}
+			else if (i == 7)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_7));
+			}
+			else if (i >= -128 && i <= 127)
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4_S, (byte)i));
+			}
+			else
+			{
+				instructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
+			}
+		}
+
+		static void EmmitLdloc(ILProcessor ilProcessor, List<Instruction> instructions, int index)
+		{
+			if (index == 0)
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc_0));
+			else if (index == 1)
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc_1));
+			else if (index == 2)
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc_2));
+			else if (index == 3)
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc_3));
+			else if (index <= 255)
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc_S, (byte)index));
+			else
+				instructions.Add(ilProcessor.Create(OpCodes.Ldloc, index));
+		}
+
+
+		static void EmmitLdarg(ILProcessor ilProcessor, List<Instruction> paramsInstructions, int paramIndex)
+		{
+			if (paramIndex <= 3)
+			{
+				if (paramIndex == 0)
+					paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg_0));
+				else if (paramIndex == 1)
+					paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg_1));
+				else if (paramIndex == 2)
+					paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg_2));
+				else if (paramIndex == 3)
+					paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg_3));
+			}
+			else if (paramIndex <= 255)
+			{
+				paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg_S, (byte)paramIndex));
+			}
+			else
+			{
+				paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, paramIndex));
+			}
+		}
+
 		static bool PatchMethod(MethodDefinition m, MethodReference hubMethod, bool patchConstructor)
 		{
 			RemoveAttributes(hotPatchAttrName, m.CustomAttributes);
@@ -149,11 +260,10 @@ namespace hotpatch
 
 			}
 
-
-
 			if (m.HasParameters)
 			{
-				// local var, argument array
+				// local var, temp obj, argument array
+				m.Body.Variables.Add(new VariableDefinition(objectTypeRef));
 				m.Body.Variables.Add(new VariableDefinition(objectArrayTypeRef));
 			}
 			// local val, ret val (last one)
@@ -169,6 +279,7 @@ namespace hotpatch
 				ilProcessor.Create(OpCodes.Ldtoken, m),
 				ilProcessor.Create(OpCodes.Call, getMethodFromHandleMethodRef),
 			};
+			var count = m.Body.Variables.Count - 1;
 			var instructions = new[]
 			{
 				ilProcessor.Create(OpCodes.Ldstr, signature),
@@ -177,7 +288,7 @@ namespace hotpatch
 				// push	null or this
 				isStatic ? ilProcessor.Create(OpCodes.Ldnull) : ilProcessor.Create(OpCodes.Ldarg_0),
 				// ret value
-				ilProcessor.Create(OpCodes.Ldloca_S, (byte)(m.Body.Variables.Count - 1)),
+				count <= 255 ? ilProcessor.Create(OpCodes.Ldloca_S, (byte)count) : ilProcessor.Create(OpCodes.Ldloca, count),
 				// copy arguments to params object[]
 				anchorToArguments,
 				// call
@@ -199,13 +310,11 @@ namespace hotpatch
 			bool hasRefOrOutParameter = false;
 			if (m.HasParameters)
 			{
-				var paramsInstructions = new List<Instruction>()
-				{
-					ilProcessor.Create(OpCodes.Ldc_I4, m.Parameters.Count),
-					ilProcessor.Create(OpCodes.Newarr, objectTypeRef),
-					ilProcessor.Create(OpCodes.Dup),
-					ilProcessor.Create(OpCodes.Stloc, m.Body.Variables.Count - 2)
-				};
+				var paramsInstructions = new List<Instruction>();
+				EmmitLdc_I4(ilProcessor, paramsInstructions, m.Parameters.Count);
+				paramsInstructions.Add(ilProcessor.Create(OpCodes.Newarr, objectTypeRef));
+				paramsInstructions.Add(ilProcessor.Create(OpCodes.Dup));
+				EmmitStloc(ilProcessor, paramsInstructions, m.Body.Variables.Count - 2);
 
 				for (int i = 0; i < m.Parameters.Count; ++i)
 				{
@@ -218,8 +327,8 @@ namespace hotpatch
 					else
 					{
 						paramsInstructions.Add(ilProcessor.Create(OpCodes.Dup));
-						paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
-						paramsInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
+						EmmitLdc_I4(ilProcessor, paramsInstructions, i);
+						EmmitLdarg(ilProcessor, paramsInstructions, i + paramStart);
 						if (param.ParameterType.IsByReference)
 						{
 							hasRefOrOutParameter = true;
@@ -268,13 +377,15 @@ namespace hotpatch
 
 						// ith_refOutArg
 						if (param.IsOut || param.ParameterType.IsByReference)
-							refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldarg, i + paramStart));
+						{
+							EmmitLdarg(ilProcessor, refOutInstructions, i + paramStart);
+						}
 
 						// arg
-						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 2));
+						EmmitLdloc(ilProcessor, refOutInstructions, m.Body.Variables.Count - 2);
 
 						// arg[i]
-						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldc_I4, i));
+						EmmitLdc_I4(ilProcessor, refOutInstructions, i);
 
 						// (type)arg[i]
 						refOutInstructions.Add(ilProcessor.Create(OpCodes.Ldelem_Ref));
@@ -308,7 +419,7 @@ namespace hotpatch
 			if (m.ReturnType.FullName != voidTypeRef.FullName)
 			{
 				var retInstructions = new List<Instruction>();
-				retInstructions.Add(ilProcessor.Create(OpCodes.Ldloc, m.Body.Variables.Count - 1));
+				EmmitLdloc(ilProcessor, retInstructions, m.Body.Variables.Count - 1);
 				if (m.ReturnType.IsValueType)
 				{
 					retInstructions.Add(ilProcessor.Create(OpCodes.Unbox_Any, m.ReturnType));
